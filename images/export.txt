@@ -1,0 +1,2 @@
+Nr	augseit	SOCTID	SOCTID	patnr	DOB	VisitID	SOCT_VisitDate
+1	2				30-Dec-1899		30-Dec-1899

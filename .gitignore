@@ -1,0 +1,12 @@
+.history
+.env
+.venv
+*.npy
+*.zip
+__pycache__
+*.jpg
+*.json
+*.png
+*.pkl
+*.pdf
+cells/*
