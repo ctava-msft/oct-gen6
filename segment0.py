@@ -21,7 +21,7 @@ def segment_rpe_layer(bscan, params, medline):
     """
     # 1) Normalize the intensity values
     # Save the bscan image before normalization
-    cv2.imwrite(f"./bscan_before_normalization.png", bscan)
+    cv2.imwrite(f"./tests/bscan_before_normalization.png", bscan)
 
     # Inspect bscan data
     print('bscan min:', np.min(bscan), 'max:', np.max(bscan))
@@ -52,9 +52,9 @@ def segment_rpe_layer(bscan, params, medline):
         # cv2.destroyAllWindows()
     # Scale to [0, 255] and convert to uint8
     bscan_to_save = (bscan_normalized * 255).astype(np.uint8)
-    cv2.imwrite(f"./bscan_after_normalization.png", bscan_to_save)
+    cv2.imwrite(f"./tests/bscan_after_normalization.png", bscan_to_save)
     sn_bscan = split_normalize(bscan_normalized, params, medline)
-    cv2.imwrite(f"./bscan_after_split_normalize.png", sn_bscan[0])
+    cv2.imwrite(f"./tests/bscan_after_split_normalize.png", sn_bscan[0])
     #print(sn_bscan)
     # print(type(sn_bscan))
     # # Ensure sn_bscan is a NumPy array
@@ -536,10 +536,10 @@ def split_normalize(octimg, params, mode='ipsimple opsimple soft', medline=None)
         inner = noctimg[:medline[i], i]
         outer = noctimg[medline[i]:, i]
         if np.any(inner > 0):
-            cv2.imwrite(f"./output_intermediates/inner_segment_col_{i}.png", (inner * 255).astype(np.uint8))
+            cv2.imwrite(f"./output_intermediates/segments/inner_segment_col_{i}.png", (inner * 255).astype(np.uint8))
         if np.any(outer > 0):
-            cv2.imwrite(f"./output_intermediates/outer_segment_col_{i}.png", (outer * 255).astype(np.uint8))    
-        return noctimg, medline
+            cv2.imwrite(f"./output_intermediates/segments/outer_segment_col_{i}.png", (outer * 255).astype(np.uint8))    
+    return noctimg, medline
 
 def remove_bias(octimg, params):
     """

@@ -78,6 +78,7 @@ class TestSegmentRPE(unittest.TestCase):
 
         # Call the segmentation function
         rpe_auto = segment_rpe_layer(image, params, medline)
+        cv2.imwrite(f"./tests/rpe_auto.png", rpe_auto)
         #print(rpe_auto)
 """
         if not isinstance(rpe_auto, np.ndarray):

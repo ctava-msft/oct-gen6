@@ -373,7 +373,7 @@ class UtilsTest(unittest.TestCase):
 
         # Optionally, visualize the result
         synthetic_to_save = (noctimg * 255).astype(np.uint8)
-        cv2.imwrite("./synthetic_bscan_after_split_normalize.png", synthetic_to_save)
+        cv2.imwrite("./tests/synthetic_bscan_after_split_normalize.png", synthetic_to_save)
 
     def test_split_normalize_with_real_image(self):
 
@@ -392,6 +392,12 @@ class UtilsTest(unittest.TestCase):
         params = {
             'SPLITNORMALIZE_CUTOFF': 2.0
         }
+        params = {
+            'MEDLINE_SIGMA1': 1.0,
+            'MEDLINE_SIGMA2': 2.0,
+            'MEDLINE_LINESWEETER': 5,
+            'MEDLINE_MINDIST': 10
+        }
         medline = np.full(512, 100)
 
         # Call the function to be tested
@@ -406,7 +412,7 @@ class UtilsTest(unittest.TestCase):
         # Check that the output image values are within [0, 1]
         self.assertTrue(np.all(noctimg >= 0))
         self.assertTrue(np.all(noctimg <= 1))
-        cv2.imwrite(f"./test_split_normalize.png", noctimg)
+        cv2.imwrite(f"./tests/test_split_normalize.png", noctimg)
         
 if __name__ == '__main__':
     unittest.main()
