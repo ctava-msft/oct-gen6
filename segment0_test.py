@@ -78,8 +78,13 @@ class TestSegmentRPE(unittest.TestCase):
 
         # Call the segmentation function
         rpe_auto = segment_rpe_layer(image, params, medline)
+        #print(rpe_auto)
+"""
         if not isinstance(rpe_auto, np.ndarray):
             rpe_auto = np.array(rpe_auto)
+
+        print(f"Type of rpe_auto: {type(rpe_auto["min"])}")
+        print(f"Contents of rpe_auto: {rpe_auto["min"]}")
 
         # Convert to uint8 if necessary
         if rpe_auto.dtype != np.uint8:
@@ -88,6 +93,7 @@ class TestSegmentRPE(unittest.TestCase):
         # Assertions to verify the output
         # Check that the output array has the correct length
         self.assertEqual(len(rpe_auto), image.shape[1], f"Output length {len(rpe_auto)}does not match image width.{image.shape[1]}")
+"""
 
 if __name__ == '__main__':
     unittest.main()

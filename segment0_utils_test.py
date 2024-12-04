@@ -215,8 +215,13 @@ class UtilsTest(unittest.TestCase):
         # Assert the output shape matches input width
         self.assertEqual(len(medline), image.shape[1])
 
+        # Assert medline values are within bounds
+        self.assertTrue(np.all(medline < image.shape[0]), "medline contains out-of-bounds indices.")
+
         # Assert the output values are within the valid range of row indices
         self.assertTrue(np.all((medline >= 0) & (medline < image.shape[0])))
+
+        cv2.imwrite("./tests/test_find_medline_with_real_image.png", medline)
 
     def test_line_sweeter_basic(self):
         input_data = np.array([1, 2, 3, 4, 5, 6, 7])
@@ -341,9 +346,49 @@ class UtilsTest(unittest.TestCase):
         with self.assertRaises(IndexError):
             remove_bias(octimg, params)
 
-    def test_split_normalize(self):
-        # Create a synthetic OCT image
-        octimg = np.random.rand(200, 512)
+    def test_split_normalize_synthetic(self):
+        # Create a synthetic OCT image with a gradient
+        height, width = 100, 100
+        octimg = np.tile(np.linspace(0, 1, height).reshape(height, 1), (1, width)).astype(np.float32)
+
+        # Define synthetic parameters
+        #params = {'MEDLINE_MINDIST': 10,'SPLITNORMALIZE_CUTOFF': 2.0, 'MEDLINE_SIGMA1': 1.0, 'MEDLINE_SIGMA2': 1.0,  'truncate1': 4.0}
+        params = {
+            'MEDLINE_SIGMA1': 1.0,
+            'MEDLINE_SIGMA2': 2.0,
+            'MEDLINE_LINESWEETER': 5,
+            'MEDLINE_MINDIST': 10
+        }
+        medline = np.full(512, 100)
+
+        # Run split_normalize
+        noctimg, medline_output = split_normalize(octimg, params, medline=None)
+
+        # Check the output range
+        print('Synthetic noctimg min:', noctimg.min(), 'max:', noctimg.max())
+
+        # Verify if normalization worked as expected
+        assert noctimg.min() >= 0 and noctimg.max() <= 1, "Synthetic normalization failed."
+        print("Synthetic test passed.")
+
+        # Optionally, visualize the result
+        synthetic_to_save = (noctimg * 255).astype(np.uint8)
+        cv2.imwrite("./synthetic_bscan_after_split_normalize.png", synthetic_to_save)
+
+    def test_split_normalize_with_real_image(self):
+
+        # Define the path to the image
+        image_path = os.path.join(os.path.dirname(__file__), 'images', 'oct-id-105.jpg')
+
+        # Check if the image file exists
+        self.assertTrue(os.path.exists(image_path), f"Image file not found at {image_path}")
+
+        # Load the image using OpenCV
+        octimg = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)  # Load as grayscale
+
+        # Normalize the image to [0, 1]
+        octimg = octimg.astype(np.float64) / 255.0
+
         params = {
             'SPLITNORMALIZE_CUTOFF': 2.0
         }
@@ -361,6 +406,7 @@ class UtilsTest(unittest.TestCase):
         # Check that the output image values are within [0, 1]
         self.assertTrue(np.all(noctimg >= 0))
         self.assertTrue(np.all(noctimg <= 1))
+        cv2.imwrite(f"./test_split_normalize.png", noctimg)
         
 if __name__ == '__main__':
     unittest.main()

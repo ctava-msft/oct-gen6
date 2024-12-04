@@ -22,11 +22,52 @@ def segment_rpe_layer(bscan, params, medline):
     # 1) Normalize the intensity values
     # Save the bscan image before normalization
     cv2.imwrite(f"./bscan_before_normalization.png", bscan)
-    #bscan[bscan > 1] = 0
-    # Save the bscan image after normalization
-    cv2.imwrite(f"./bscan_after_normalization.png", bscan)
-    sn_bscan = split_normalize(bscan, params, medline)
+
+    # Inspect bscan data
+    print('bscan min:', np.min(bscan), 'max:', np.max(bscan))
+    print('bscan mean:', np.mean(bscan), 'std:', np.std(bscan))
+
+    # Check if normalization is possible
+    if np.max(bscan) == np.min(bscan):
+        print("bscan has constant value. Cannot normalize.")
+    else:
+        # Apply logarithmic scaling if necessary
+        if np.max(bscan) - np.min(bscan) > 100:
+            bscan = np.log1p(bscan)
+            print('After log1p transformation:')
+            print('bscan min:', np.min(bscan), 'max:', np.max(bscan))
+
+        # Normalize to range [0, 255]
+        # bscan_normalized = 255 * (bscan - np.min(bscan)) / (np.max(bscan) - np.min(bscan))
+        # bscan_normalized = bscan_normalized.astype(np.uint8)
+
+        # Normalize the image to [0, 1]
+        bscan_min = np.min(bscan)
+        bscan_max = np.max(bscan)
+        bscan_normalized = (bscan - bscan_min) / (bscan_max - bscan_min)
+
+        # # Display the image
+        # cv2.imshow('Normalized Image', bscan_normalized)
+        # cv2.waitKey(0)
+        # cv2.destroyAllWindows()
+    # Scale to [0, 255] and convert to uint8
+    bscan_to_save = (bscan_normalized * 255).astype(np.uint8)
+    cv2.imwrite(f"./bscan_after_normalization.png", bscan_to_save)
+    sn_bscan = split_normalize(bscan_normalized, params, medline)
+    cv2.imwrite(f"./bscan_after_split_normalize.png", sn_bscan[0])
+    #print(sn_bscan)
+    # print(type(sn_bscan))
+    # # Ensure sn_bscan is a NumPy array
+    # sn_bscan = np.array(sn_bscan)
+
+    # # Normalize and convert to uint8 if it's not already
+    # if sn_bscan.dtype != np.uint8:
+    #     sn_bscan = (sn_bscan * 255).astype(np.uint8)
+    # Extract the secondary array from the tuple
+    #sn_bscan_array = sn_bscan[0]
+    #cv2.imwrite(f"./bscan_after_split_normalize.png", sn_bscan_array)
     sn_bscan = remove_bias(sn_bscan, params)
+    cv2.imwrite(f"./bscan_after_remove_bias.png", sn_bscan)
 
     # 2) Noise removal using median filtering
     sn_bscan = medfilt2d(sn_bscan, params['RPECIRC_SEGMENT_MEDFILT1'])
@@ -262,6 +303,14 @@ def find_low_pos_near_lmax(octimg, g, lmax, sigma2):
     return lmin
 
 def find_medline(octimg, params):
+    # Convert to float32 if necessary
+    if octimg.dtype == np.float16:
+        octimg = octimg.astype(np.float32)
+        print("Converted octimg from float16 to float32 for gaussian_filter.")
+    elif not np.issubdtype(octimg.dtype, np.floating):
+        octimg = octimg.astype(np.float32)
+        print("Converted octimg to float32 for gaussian_filter.")
+
     mindist = params['MEDLINE_MINDIST']
     sigma1 = params['MEDLINE_SIGMA1']
     sigma2 = params['MEDLINE_SIGMA2']
@@ -316,6 +365,14 @@ def find_medline(octimg, params):
     medline = line_sweeter(lmin, linesweeter_window)
     return medline
 
+def split_normalizeNew(image):
+    min_val = np.min(image)
+    max_val = np.max(image)
+    if max_val - min_val == 0:
+        return image
+    normalized = (image - min_val) / (max_val - min_val)
+    return normalized
+
 def split_normalize(octimg, params, mode='ipsimple opsimple soft', medline=None):
     """
     Normalize an OCT B-scan differently in the inner and outer parts.
@@ -331,14 +388,19 @@ def split_normalize(octimg, params, mode='ipsimple opsimple soft', medline=None)
         medline (np.ndarray): Medline indices.
     """
     cutoff = params.get('SPLITNORMALIZE_CUTOFF', 2.0)
+    cutoff = params.get('SPLITNORMALIZE_CUTOFF', 2.0)
+    print(f"Normalization mode: {mode}")
+    print(f"Cutoff value: {cutoff}")
 
     if medline is None:
         medline = find_medline(octimg, params)
         medline = medfilt2d(medline, kernel_size=5)
         medline = np.floor(medline).astype(int)
         medline[medline < 1] = 1
+        print("Processed medline:", medline)
 
     noctimg = octimg.copy()
+    assert np.all(medline < noctimg.shape[0]), "medline contains out-of-bounds indices."
     num_cols = octimg.shape[1]
     maxIP = np.zeros(num_cols, dtype=np.float64)
     minIP = np.zeros(num_cols, dtype=np.float64)
@@ -354,12 +416,38 @@ def split_normalize(octimg, params, mode='ipsimple opsimple soft', medline=None)
             meanVal[i] = np.mean(sorter)
         meanVal = meanVal * cutoff - np.mean(meanVal)
         meanVal[meanVal < 0] = 0
-
-    for i in range(num_cols):
-        minIP[i] = np.min(octimg[:medline[i], i])
-        maxIP[i] = np.max(octimg[:medline[i], i])
-        minOP[i] = np.min(octimg[medline[i]:, i])
-        maxOP[i] = np.max(octimg[medline[i]:, i])
+        for i in range(num_cols):
+            # Ensure medline[i] does not exceed the maximum index
+            start_index = min(medline[i], octimg.shape[0] - 1)
+            end_index = min(end_index, octimg.shape[0] - 1)
+            
+            # Slices for minIP and maxIP
+            slice_maxIP = octimg[:end_index, i]
+            if slice_maxIP.size > 0:
+                minIP[i] = np.min(slice_maxIP)
+            else:
+                minIP[i] = np.nan  # or another appropriate default value
+            
+            # Slices for minOP and maxOP
+            slice_minOP = octimg[start_index:end_index, i]
+            if slice_minOP.size > 0:
+                minOP[i] = np.min(slice_minOP)
+                maxOP[i] = np.max(slice_minOP)
+            else:
+                minOP[i] = np.nan  # or another appropriate default value
+                maxOP[i] = np.nan  # or another appropriate default value
+            
+            # Calculate the index of the minimum value in slice_maxIP
+            if slice_maxIP.size > 0:
+                current_min = np.argmin(slice_maxIP)
+            else:
+                current_min = -1  # Indicates no valid index
+            
+            if current_min != -1 and current_min < octimg.shape[0]:
+                min_value = octimg[current_min, i]
+            else:
+                min_value = np.nan  # or handle appropriately
+                print(f"Warning: min index {current_min} out of bounds for axis 0 with size {octimg.shape[0]}")
 
     if 'ipnonlin' in mode:
         maxIP = maxIP - meanVal + minIP
@@ -369,13 +457,22 @@ def split_normalize(octimg, params, mode='ipsimple opsimple soft', medline=None)
         minIP = medfilt(minIP, kernel_size=5)
         maxOP = medfilt(maxOP, kernel_size=5)
         minOP = medfilt(minOP, kernel_size=5)
+        print("maxIP after 'soft':", maxIP)
+        print("minIP after 'soft':", minIP)
+        print("maxOP after 'soft':", maxOP)
+        print("minOP after 'soft':", minOP)
 
     ipDiff = maxIP - minIP
-
+    ipDiff[ipDiff == 0] = 1  # Prevent division by zero
+    print("ipDiff min:", ipDiff.min(), "max:", ipDiff.max())
+    print("minIP min:", minIP.min(), "max:", minIP.max())
     if 'ipbscan' in mode:
         minIP[:] = np.min(minIP)
         maxIP[:] = np.max(minIP)
         ipDiff = maxIP - minIP
+        print("minIP after 'ipbscan':", minIP)
+        print("maxIP after 'ipbscan':", maxIP)
+        print("ipDiff after 'ipbscan':", ipDiff)
         for i in range(num_cols):
             if ipDiff[i] != 0:
                 noctimg[:medline[i], i] = (octimg[:medline[i], i] - minIP[i]) / ipDiff[i]
@@ -390,6 +487,8 @@ def split_normalize(octimg, params, mode='ipsimple opsimple soft', medline=None)
         end_idx = -int(np.ceil(len(maxIP) / 10))
         maxIP[:] = np.mean(maxIPS[start_idx:end_idx])
         ipDiff = maxIP - minIP
+        print("maxIP after 'ipnearmax':", maxIP)
+        print("ipDiff after 'ipnearmax':", ipDiff)
         for i in range(num_cols):
             if ipDiff[i] != 0:
                 noctimg[:medline[i], i] = (octimg[:medline[i], i] - minIP[i]) / ipDiff[i]
@@ -399,12 +498,19 @@ def split_normalize(octimg, params, mode='ipsimple opsimple soft', medline=None)
             if (ipDiff[i] != 0).all():
                 noctimg[:medline[i], i] = (octimg[:medline[i], i] - minIP[i]) / ipDiff[i]
 
+    # Handle opDiff with a minimum threshold
     opDiff = maxOP - minOP
+    min_op_diff = 1e-3  # Set a sensible minimum
+    opDiff = np.where(opDiff < min_op_diff, min_op_diff, opDiff)
+    print("opDiff min:", opDiff.min(), "max:", opDiff.max())
 
     if 'opbscan' in mode:
         minOP[:] = np.min(minOP)
         maxOP[:] = np.max(minOP)
         opDiff = maxOP - minOP
+        print("minOP after 'opbscan':", minOP)
+        print("maxOP after 'opbscan':", maxOP)
+        print("opDiff after 'opbscan':", opDiff)
         for i in range(num_cols):
             if opDiff[i] != 0:
                 noctimg[medline[i]:, i] = (octimg[medline[i]:, i] - minOP[i]) / opDiff[i]
@@ -419,7 +525,21 @@ def split_normalize(octimg, params, mode='ipsimple opsimple soft', medline=None)
                 noctimg[medline[i]:, i] = (octimg[medline[i]:, i] - minOP[i]) / opDiff[i]
 
     noctimg = np.clip(noctimg, 0, 1)
-    return noctimg, medline
+    print('noctimg min:', noctimg.min(), 'max:', noctimg.max())
+    print("noctimg statistics:")
+    print("min:", noctimg.min())
+    print("max:", noctimg.max())
+    print("mean:", noctimg.mean())
+    print("std:", noctimg.std())
+
+    for i in range(num_cols):
+        inner = noctimg[:medline[i], i]
+        outer = noctimg[medline[i]:, i]
+        if np.any(inner > 0):
+            cv2.imwrite(f"./output_intermediates/inner_segment_col_{i}.png", (inner * 255).astype(np.uint8))
+        if np.any(outer > 0):
+            cv2.imwrite(f"./output_intermediates/outer_segment_col_{i}.png", (outer * 255).astype(np.uint8))    
+        return noctimg, medline
 
 def remove_bias(octimg, params):
     """
