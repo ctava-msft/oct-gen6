@@ -46,6 +46,7 @@ class UtilsTest(unittest.TestCase):
 
         # Call the function to be tested
         modes = 'ipsimple opsimple soft'
+        modes = ''
         noctimg, medline_output = split_normalize(octimg, params, mode=modes, medline=None)
 
         print("medline")

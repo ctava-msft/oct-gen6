@@ -15,6 +15,7 @@ matlabengine
 numpy
 pytest
 scipy
+spacy
 setuptools
 scikit-image
 smop

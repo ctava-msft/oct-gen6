@@ -1,11 +1,94 @@
 import cv2
 import numpy as np
+from numpy.polynomial import Polynomial
 from scipy.signal import medfilt2d
 from scipy.ndimage import gaussian_filter
 from scipy.signal import medfilt
 from scipy.signal import find_peaks
 from scipy.signal import argrelextrema
+from scipy import fftpack
 from scipy.ndimage import gaussian_filter
+import matplotlib.pyplot as plt
+import json
+
+def process_and_draw_layers(bscan):
+    # Apply Fourier Transform to the image
+    oct_fft = fftpack.fft2(bscan)
+    oct_fft_shifted = fftpack.fftshift(oct_fft)  # Shift zero frequency to the center
+
+    # Create a Gaussian filter in the frequency domain to enhance high frequencies (edges)
+    rows, cols = bscan.shape
+    crow, ccol = rows // 2, cols // 2  # Center
+    sigma = 50  # Gaussian standard deviation
+    x, y = np.ogrid[:rows, :cols]
+    mask = np.exp(-((x - crow)**2 + (y - ccol)**2) / (2.0 * sigma**2))
+
+    # Apply the filter to the FFT of the image
+    filtered_fft = oct_fft_shifted * mask
+
+    # Transform back to the spatial domain
+    filtered_oct_image = np.abs(fftpack.ifft2(fftpack.ifftshift(filtered_fft)))
+
+    # Apply Gaussian smoothing
+    smoothed_image = gaussian_filter(filtered_oct_image, sigma=1).astype(np.uint8)
+
+    # Use Canny edge detection with adjusted thresholds
+    edges = cv2.Canny(smoothed_image, threshold1=20, threshold2=80)  # Lowered thresholds
+
+    # Apply dilation to connect fragmented edges
+    kernel = np.ones((3, 3), np.uint8)
+    edges = cv2.dilate(edges, kernel, iterations=1)
+
+    # Save the edges image for debugging
+    cv2.imwrite('edges_debug.png', edges)
+
+    # Find contours from the edges
+    #contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+
+    # Define layer colors based on the legend (approximation)
+    layer_colors = [
+        (255, 0, 0),    # Blue for RNFL
+        (255, 165, 0),  # Orange for GCL
+        (0, 255, 0),    # Green for IPL
+        (255, 0, 255),  # Purple for INL
+        (255, 255, 0),  # Yellow for OPL
+        (255, 69, 0),   # Red-Orange for ONL/ELM
+        (255, 20, 147), # Pink for EZ
+        (255, 0, 0),    # Red for POS
+        (0, 255, 255),  # Cyan for RPE/BM
+    ]
+
+    # Add a print statement to verify the number of contours detected
+    def process_layers(image, contours, layer_colors, instructions):
+        # Convert 16F to 8U with scaling
+        # Normalize the image to 0-255
+        normalized_image = cv2.normalize(image, None, 0, 255, cv2.NORM_MINMAX)
+        image_8u = cv2.convertScaleAbs(normalized_image, alpha=255.0/65535.0)
+        output_image = cv2.cvtColor(image_8u, cv2.COLOR_GRAY2BGR)
+        # Sort contours from top to bottom based on their y-coordinate
+        contours = sorted(contours, key=lambda cnt: cv2.boundingRect(cnt)[1])
+        print(f"Number of contours detected: {len(contours)}")  # Debug print
+        for idx in range(9):
+            if idx < len(contours):
+                contour = contours[idx]
+                approx = cv2.approxPolyDP(contour, epsilon=2, closed=False)
+                line_coordinates = []
+                for i in range(len(approx) - 1):
+                    start_point = tuple(int(coord) for coord in approx[i][0])
+                    end_point = tuple(int(coord) for coord in approx[i + 1][0])
+                    cv2.line(output_image, start_point, end_point, layer_colors[idx], 2)
+                    line_coordinates.append({'start': start_point, 'end': end_point})
+                filename = f'./output_contours/lines_contour_{idx}.json'
+                print(f"Saving to {filename}")
+                with open(filename, 'w') as f:
+                    json.dump(line_coordinates, f)
+        return output_image
+
+    min_contour_length = 100  # Minimum length of contours to process
+    instructions = "{0,2}"
+    filtered_image_with_lines = process_layers(bscan, contours, layer_colors, instructions)
+    return filtered_image_with_lines
 
 def segment_rpe_layer(bscan, params, medline=None):
     """
@@ -53,6 +136,9 @@ def segment_rpe_layer(bscan, params, medline=None):
         # cv2.destroyAllWindows()
     # Scale to [0, 255] and convert to uint8
     bscan_to_save = (bscan_normalized * 255).astype(np.uint8)
+
+    # Normalize the image to 0-255
+    #bscan_to_save = cv2.normalize(bscan, None, 0, 255, cv2.NORM_MINMAX)
     cv2.imwrite(f"./tests/bscan_after_normalization.png", bscan_to_save)
     modes = 'ipsimple opsimple soft'
     modes = 'soft'
@@ -68,7 +154,30 @@ def segment_rpe_layer(bscan, params, medline=None):
     #     sn_bscan = sn_bscan.astype(np.uint8)
     cv2.imwrite(f"./tests/bscan_after_split_normalize.png", sn_bscan)
 
-    return sn_bscan
+    # Call process_and_draw_layers
+    processed_bscan = process_and_draw_layers(sn_bscan)
+
+
+    # # Undo normalization
+    # original_bscan = processed_bscan * (bscan_max - bscan_min) + bscan_min
+
+    # # Undo logarithmic scaling if it was applied
+    # if np.max(original_bscan) - np.min(original_bscan) > 100:
+    #     original_bscan = np.expm1(original_bscan)
+
+    # # Debug: Check the range of original_bscan
+    # print('original_bscan min:', np.min(original_bscan), 'max:', np.max(original_bscan))
+
+    # # Assign to rpe_auto
+    # rpe_auto = original_bscan
+
+    # Debug: Verify rpe_auto
+    #print('rpe_auto min:', np.min(rpe_auto), 'max:', np.max(rpe_auto))
+
+    # Continue with the rest of the code
+    return processed_bscan
+
+    #return sn_bscan
     #return bscan_to_save
     #print(sn_bscan)
     # print(type(sn_bscan))

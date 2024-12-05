@@ -1,13 +1,190 @@
 import cv2
 import numpy as np
+from numpy.polynomial import Polynomial
 from scipy.signal import medfilt2d
 from scipy.ndimage import gaussian_filter
 from scipy.signal import medfilt
 from scipy.signal import find_peaks
 from scipy.signal import argrelextrema
+from scipy import fftpack
 from scipy.ndimage import gaussian_filter
+import matplotlib.pyplot as plt
+import os
+import json
 
-def segment_rpe_layer(bscan, params, medline=None):
+def scale_contours(contour, multiplier):
+    contour_array = contour.reshape(-1, 2).astype(np.float32)
+    
+    if len(contour_array) < 3:
+        raise ValueError("Contour has fewer than 3 points and cannot form a valid shape.")
+    
+    M = cv2.moments(contour)
+    if M['m00'] == 0:
+        centroid = np.mean(contour_array, axis=0)
+    else:
+        cx = M['m10'] / M['m00']
+        cy = M['m01'] / M['m00']
+        centroid = np.array([cx, cy], dtype=np.float32)
+
+    # Translate contour to origin
+    translated = contour_array - centroid
+    # Apply scaling
+    scaled = translated * multiplier
+    # Translate contour back
+    scaled_contour = scaled + centroid
+    # Convert back to integer
+    scaled_contour = scaled_contour.astype(np.int32)
+    
+    # Reshape to original shape
+    scaled_contour = scaled_contour.reshape(-1, 1, 2)
+
+    # Validation Checks
+    if scaled_contour.shape[0] < 3:
+        raise ValueError("Scaled contour has fewer than 3 points and cannot form a valid shape.")
+    if scaled_contour.dtype not in [np.int32, np.float32]:
+        raise TypeError(f"Scaled contour has invalid data type: {scaled_contour.dtype}")
+
+    # Calculate areas
+    original_area = cv2.contourArea(contour)
+    scaled_area = cv2.contourArea(scaled_contour)
+
+    return scaled_contour, original_area, scaled_area
+
+def fill_scaled_contours(layer_image, scaled_contour, thickness_multiplier=1.0, base_thickness=1):
+    thickness = max(1, int(base_thickness * thickness_multiplier))
+    mask = np.zeros(layer_image.shape[:2], dtype=np.uint8)
+    cv2.drawContours(mask, [scaled_contour], -1, 255, thickness=thickness)
+    extracted_data = cv2.bitwise_and(layer_image, layer_image, mask=mask)
+    return extracted_data
+
+def process_and_draw_layers(bscan):
+    # Apply Fourier Transform to the image
+    oct_fft = fftpack.fft2(bscan)
+    oct_fft_shifted = fftpack.fftshift(oct_fft)  # Shift zero frequency to the center
+
+    # Create a Gaussian filter in the frequency domain to enhance high frequencies (edges)
+    rows, cols = bscan.shape
+    crow, ccol = rows // 2, cols // 2  # Center
+    sigma = 50  # Gaussian standard deviation
+    x, y = np.ogrid[:rows, :cols]
+    mask = np.exp(-((x - crow)**2 + (y - ccol)**2) / (2.0 * sigma**2))
+
+    # Apply the filter to the FFT of the image
+    filtered_fft = oct_fft_shifted * mask
+
+    # Transform back to the spatial domain
+    filtered_oct_image = np.abs(fftpack.ifft2(fftpack.ifftshift(filtered_fft)))
+
+    # Apply Gaussian smoothing
+    smoothed_image = gaussian_filter(filtered_oct_image, sigma=1).astype(np.uint8)
+
+    # Use Canny edge detection with adjusted thresholds
+    edges = cv2.Canny(smoothed_image, threshold1=20, threshold2=80)  # Lowered thresholds
+
+    # Apply dilation to connect fragmented edges
+    kernel = np.ones((3, 3), np.uint8)
+    edges = cv2.dilate(edges, kernel, iterations=1)
+
+    # Save the edges image for debugging
+    cv2.imwrite('edges_debug.png', edges)
+
+    # Find contours from the edges
+    #contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    print(f"Number of contours detected: {len(contours)}")
+    # Define layer colors based on the legend (approximation)
+    layer_colors = [
+        (255, 0, 0),    # Blue for RNFL
+        (255, 165, 0),  # Orange for GCL
+        (0, 255, 0),    # Green for IPL
+        (255, 0, 255),  # Purple for INL
+        (255, 255, 0),  # Yellow for OPL
+        (255, 69, 0),   # Red-Orange for ONL/ELM
+        (255, 20, 147), # Pink for EZ
+        (255, 0, 0),    # Red for POS
+        (0, 255, 255),  # Cyan for RPE/BM
+    ]
+
+    def process_layers(bscan, contours, layer_colors, scaling_factors):
+        output_image = bscan.copy()
+        output_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+        line_coordinates = {}
+        contour_info = {}
+        for layer_idx, multiplier in scaling_factors.items():
+            if layer_idx >= len(contours):
+                continue
+            contour = contours[layer_idx]
+            try:
+                scaled_contours, original_area, scaled_area = scale_contours(contour, multiplier)
+            except (ValueError, TypeError) as e:
+                print(f"Layer {layer_idx}: {e} Skipping this layer.")
+                continue
+            
+            # Store coordinates and areas
+            contour_info[layer_idx] = {
+                "original_contour": contours,
+                "scaled_contour": scaled_contours,
+                "original_area": original_area,
+                "scaled_area": scaled_area
+            }
+            
+            # # Anchor scaled_contour to original_contour
+            # anchored_scaled_contour = [
+            #     (ox + sx, oy + sy) for (ox, oy), (sx, sy) in zip(contours, scaled_contours)
+            # ]
+            # # Separate x and y coordinates
+            # orig_x, orig_y = zip(*contours)
+            # scaled_x, scaled_y = zip(*anchored_scaled_contour)
+            # # Plot original contour
+            # plt.plot(orig_x, orig_y, 'k-', label='Original Contour')
+            # # Plot filled scaled contour
+            # plt.fill(scaled_x, scaled_y, alpha=0.5, label='Scaled Contour')
+            # plt.legend()
+            # plt.show()
+
+            # Handle layer_colors as a list
+            color = layer_colors[layer_idx+1] if layer_idx < len(layer_colors) else (255, 255, 255)
+
+            cv2.drawContours(output_image, [scaled_contours], -1, color, 2)
+            
+            filled_data = fill_scaled_contours(bscan, scaled_contours, multiplier, base_thickness=1)
+
+            # Convert filled_data to BGR if necessary
+            if len(filled_data.shape) == 2:
+                filled_data = cv2.cvtColor(filled_data, cv2.COLOR_GRAY2BGR)
+            
+            # Ensure filled_data matches output_image dimensions and channels
+            if filled_data.shape != output_image.shape:
+                filled_data = cv2.resize(filled_data, (output_image.shape[1], output_image.shape[0]))
+            
+            assert filled_data.shape == output_image.shape, "Filled data and output image shapes do not match."
+            assert filled_data.dtype == output_image.dtype, "Filled data and output image dtypes do not match."
+
+            output_image = cv2.addWeighted(output_image, 1, filled_data, 1, 0)
+            
+            line_coordinates[layer_idx] = scaled_contours.tolist()
+            
+            # Print contour information
+            print(f"Layer {layer_idx}:")
+            print(f"  Original Area: {original_area}")
+            print(f"  Scaled Area: {scaled_area}")
+            #print(f"  Original Contour Coordinates: {contour.tolist()}")
+            #print(f"  Scaled Contour Coordinates: {scaled_contour.tolist()}\n")
+
+        with open('line_coordinates.json', 'w') as f:
+            json.dump(line_coordinates, f)
+            
+        return output_image
+    
+    scaling_factors = {
+        0: 0.25,  # RNFL
+        # Add more layers and multipliers as needed
+    }
+    subset_contours = [contours[2]]
+    filtered_image_with_lines = process_layers(bscan, subset_contours, layer_colors, scaling_factors)
+    return filtered_image_with_lines
+
+def segment_layers(bscan, params, medline=None):
     """
     Segments the RPE - retinal pigment epithelium layer from a B-scan image.
 
@@ -68,7 +245,13 @@ def segment_rpe_layer(bscan, params, medline=None):
     #     sn_bscan = sn_bscan.astype(np.uint8)
     cv2.imwrite(f"./tests/bscan_after_split_normalize.png", sn_bscan)
 
-    return sn_bscan
+    # Call process_and_draw_layers
+    processed_bscan = process_and_draw_layers(sn_bscan)
+
+    # Continue with the rest of the code
+    return processed_bscan
+
+    #return sn_bscan
     #return bscan_to_save
     #print(sn_bscan)
     # print(type(sn_bscan))
@@ -659,3 +842,33 @@ def find_blood_vessels(bscan, params, linerpe):
         idx = extend_blood_vessels(idx, addWidth, multWidthTresh, multWidth)
     
     return np.where(idx > 0)[0]
+
+
+if __name__ == "__main__":
+    # Define the path to the image
+    image_path = os.path.join(os.path.dirname(__file__), 'images', 'oct-id-105.jpg')
+
+    # Load the image using OpenCV
+    image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)  # Load as grayscale
+
+    # Define parameters for segmentation
+    params = {
+        'MEDLINE_SIGMA1': 1.0,
+        'MEDLINE_SIGMA2': 2.0,
+        'MEDLINE_LINESWEETER': 5,
+        'MEDLINE_MINDIST': 10,
+        'RPE_SEGMENT_MEDFILT1': (5, 7),
+        'RPE_SEGMENT_MEDFILT2': (5, 7),
+        'RPE_SEGMENT_LINESWEETER1': 5,
+        'RPE_SEGMENT_LINESWEETER2': 5,
+        'RPE_SEGMENT_POLYDIST': 10,
+        'RPE_SEGMENT_POLYNUMBER': 5,
+        'REMOVEBIAS_FRACTION': 0.75,
+        'REMOVEBIAS_REGIONWIDTH': 10,
+        'SPLITNORMALIZE_CUTOFF': 2.0
+    }
+
+    # Call the segmentation function
+    layers = segment_layers(image, params)
+    print("./tests/layers-resized.png")
+    cv2.imwrite(f"./tests/layers-resized.png", layers)

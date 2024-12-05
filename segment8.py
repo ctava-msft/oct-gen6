@@ -1,13 +1,121 @@
 import cv2
 import numpy as np
+from numpy.polynomial import Polynomial
 from scipy.signal import medfilt2d
 from scipy.ndimage import gaussian_filter
 from scipy.signal import medfilt
 from scipy.signal import find_peaks
 from scipy.signal import argrelextrema
+from scipy import fftpack
 from scipy.ndimage import gaussian_filter
+import matplotlib.pyplot as plt
+import os
+import json
 
-def segment_rpe_layer(bscan, params, medline=None):
+def scale_contour(contour, multiplier):
+    contour_array = contour.reshape(-1, 2)
+    M = cv2.moments(contour)
+    if M['m00'] == 0:
+        # Avoid division by zero if contour area is zero
+        centroid = np.mean(contour_array, axis=0)
+    else:
+        cx = M['m10'] / M['m00']
+        cy = M['m01'] / M['m00']
+        centroid = np.array([cx, cy])
+
+    # Translate contour to origin
+    translated = contour_array - centroid
+    # Apply scaling
+    scaled = translated * multiplier
+    # Translate contour back
+    scaled_contour = scaled + centroid
+    # Convert back to integer
+    scaled_contour = scaled_contour.astype(np.int32)
+    # Reshape to original shape
+    return scaled_contour.reshape(-1, 1, 2)
+
+def process_and_draw_layers(bscan):
+    # Apply Fourier Transform to the image
+    oct_fft = fftpack.fft2(bscan)
+    oct_fft_shifted = fftpack.fftshift(oct_fft)  # Shift zero frequency to the center
+
+    # Create a Gaussian filter in the frequency domain to enhance high frequencies (edges)
+    rows, cols = bscan.shape
+    crow, ccol = rows // 2, cols // 2  # Center
+    sigma = 50  # Gaussian standard deviation
+    x, y = np.ogrid[:rows, :cols]
+    mask = np.exp(-((x - crow)**2 + (y - ccol)**2) / (2.0 * sigma**2))
+
+    # Apply the filter to the FFT of the image
+    filtered_fft = oct_fft_shifted * mask
+
+    # Transform back to the spatial domain
+    filtered_oct_image = np.abs(fftpack.ifft2(fftpack.ifftshift(filtered_fft)))
+
+    # Apply Gaussian smoothing
+    smoothed_image = gaussian_filter(filtered_oct_image, sigma=1).astype(np.uint8)
+
+    # Use Canny edge detection with adjusted thresholds
+    edges = cv2.Canny(smoothed_image, threshold1=20, threshold2=80)  # Lowered thresholds
+
+    # Apply dilation to connect fragmented edges
+    kernel = np.ones((3, 3), np.uint8)
+    edges = cv2.dilate(edges, kernel, iterations=1)
+
+    # Save the edges image for debugging
+    cv2.imwrite('edges_debug.png', edges)
+
+    # Find contours from the edges
+    #contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    print(f"Number of contours detected: {len(contours)}")
+    # Define layer colors based on the legend (approximation)
+    layer_colors = [
+        (255, 0, 0),    # Blue for RNFL
+        (255, 165, 0),  # Orange for GCL
+        (0, 255, 0),    # Green for IPL
+        (255, 0, 255),  # Purple for INL
+        (255, 255, 0),  # Yellow for OPL
+        (255, 69, 0),   # Red-Orange for ONL/ELM
+        (255, 20, 147), # Pink for EZ
+        (255, 0, 0),    # Red for POS
+        (0, 255, 255),  # Cyan for RPE/BM
+    ]
+
+    # Add a print statement to verify the number of contours detected
+    def process_layers(image, contours, layer_colors, scaling_factors):
+        output_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+        # Sort contours from top to bottom based on their y-coordinate
+        contours = sorted(contours, key=lambda cnt: cv2.boundingRect(cnt)[1])
+        print(f"Number of contours detected: {len(contours)}")  # Debug print
+        for idx in range(9):
+            if idx < len(contours):
+                contour = contours[idx]
+                # Apply scaling if layer has a defined multiplier
+                if idx in scaling_factors:
+                    contour = scale_contour(contour, scaling_factors[idx])
+                approx = cv2.approxPolyDP(contour, epsilon=2, closed=True)
+                line_coordinates = []
+                for i in range(len(approx) - 1):
+                    start_point = tuple(int(coord) for coord in approx[i][0])
+                    end_point = tuple(int(coord) for coord in approx[(i + 1) % len(approx)][0])  # Wrap around
+                    cv2.line(output_image, start_point, end_point, layer_colors[idx], 2)
+                    line_coordinates.append({'start': start_point, 'end': end_point})
+                filename = f'./output_contours/lines_contour_{idx}.json'
+                print(f"Saving to {filename}")
+                with open(filename, 'w') as f:
+                    json.dump(line_coordinates, f)
+        return output_image
+
+    scaling_factors = {
+        0: 1.25,  # Layer index 0 with multiplier 2
+        # Add more layers and multipliers as needed
+    }
+    subset_contours = [contours[2]]
+    filtered_image_with_lines = process_layers(bscan, subset_contours, layer_colors, scaling_factors)
+    return filtered_image_with_lines
+
+def segment_layers(bscan, params, medline=None):
     """
     Segments the RPE - retinal pigment epithelium layer from a B-scan image.
 
@@ -68,7 +176,13 @@ def segment_rpe_layer(bscan, params, medline=None):
     #     sn_bscan = sn_bscan.astype(np.uint8)
     cv2.imwrite(f"./tests/bscan_after_split_normalize.png", sn_bscan)
 
-    return sn_bscan
+    # Call process_and_draw_layers
+    processed_bscan = process_and_draw_layers(sn_bscan)
+
+    # Continue with the rest of the code
+    return processed_bscan
+
+    #return sn_bscan
     #return bscan_to_save
     #print(sn_bscan)
     # print(type(sn_bscan))
@@ -659,3 +773,33 @@ def find_blood_vessels(bscan, params, linerpe):
         idx = extend_blood_vessels(idx, addWidth, multWidthTresh, multWidth)
     
     return np.where(idx > 0)[0]
+
+
+if __name__ == "__main__":
+    # Define the path to the image
+    image_path = os.path.join(os.path.dirname(__file__), 'images', 'oct-id-105.jpg')
+
+    # Load the image using OpenCV
+    image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)  # Load as grayscale
+
+    # Define parameters for segmentation
+    params = {
+        'MEDLINE_SIGMA1': 1.0,
+        'MEDLINE_SIGMA2': 2.0,
+        'MEDLINE_LINESWEETER': 5,
+        'MEDLINE_MINDIST': 10,
+        'RPE_SEGMENT_MEDFILT1': (5, 7),
+        'RPE_SEGMENT_MEDFILT2': (5, 7),
+        'RPE_SEGMENT_LINESWEETER1': 5,
+        'RPE_SEGMENT_LINESWEETER2': 5,
+        'RPE_SEGMENT_POLYDIST': 10,
+        'RPE_SEGMENT_POLYNUMBER': 5,
+        'REMOVEBIAS_FRACTION': 0.75,
+        'REMOVEBIAS_REGIONWIDTH': 10,
+        'SPLITNORMALIZE_CUTOFF': 2.0
+    }
+
+    # Call the segmentation function
+    layers = segment_layers(image, params)
+    print("./tests/layers.png")
+    cv2.imwrite(f"./tests/layers.png", layers)
