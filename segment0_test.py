@@ -14,12 +14,12 @@ class TestSegmentRPE(unittest.TestCase):
     #         'MEDLINE_SIGMA2': 2.0,
     #         'MEDLINE_LINESWEETER': 5,
     #         'MEDLINE_MINDIST': 10,
-    #         'RPECIRC_SEGMENT_MEDFILT1': (5, 7),
-    #         'RPECIRC_SEGMENT_MEDFILT2': (5, 7),
-    #         'RPECIRC_SEGMENT_LINESWEETER1': 5,
-    #         'RPECIRC_SEGMENT_LINESWEETER2': 5,
-    #         'RPECIRC_SEGMENT_POLYDIST': 10,
-    #         'RPECIRC_SEGMENT_POLYNUMBER': 5,
+    #         'RPE_SEGMENT_MEDFILT1': (5, 7),
+    #         'RPE_SEGMENT_MEDFILT2': (5, 7),
+    #         'RPE_SEGMENT_LINESWEETER1': 5,
+    #         'RPE_SEGMENT_LINESWEETER2': 5,
+    #         'RPE_SEGMENT_POLYDIST': 10,
+    #         'RPE_SEGMENT_POLYNUMBER': 5,
     #         'REMOVEBIAS_FRACTION': 0.75,
     #         'REMOVEBIAS_REGIONWIDTH': 10,
     #         'SPLITNORMALIZE_CUTOFF': 2.0
@@ -62,22 +62,23 @@ class TestSegmentRPE(unittest.TestCase):
             'MEDLINE_SIGMA2': 2.0,
             'MEDLINE_LINESWEETER': 5,
             'MEDLINE_MINDIST': 10,
-            'RPECIRC_SEGMENT_MEDFILT1': (5, 7),
-            'RPECIRC_SEGMENT_MEDFILT2': (5, 7),
-            'RPECIRC_SEGMENT_LINESWEETER1': 5,
-            'RPECIRC_SEGMENT_LINESWEETER2': 5,
-            'RPECIRC_SEGMENT_POLYDIST': 10,
-            'RPECIRC_SEGMENT_POLYNUMBER': 5,
+            'RPE_SEGMENT_MEDFILT1': (5, 7),
+            'RPE_SEGMENT_MEDFILT2': (5, 7),
+            'RPE_SEGMENT_LINESWEETER1': 5,
+            'RPE_SEGMENT_LINESWEETER2': 5,
+            'RPE_SEGMENT_POLYDIST': 10,
+            'RPE_SEGMENT_POLYNUMBER': 5,
             'REMOVEBIAS_FRACTION': 0.75,
             'REMOVEBIAS_REGIONWIDTH': 10,
             'SPLITNORMALIZE_CUTOFF': 2.0
         }
 
         # Create a medline array based on image dimensions
-        medline = np.full(image.shape[1], image.shape[0] // 2)
+        #medline = np.full(image.shape[1], image.shape[0] // 2)
 
         # Call the segmentation function
-        rpe_auto = segment_rpe_layer(image, params, medline)
+        rpe_auto = segment_rpe_layer(image, params)
+        print("./tests/rpe_auto.png")
         cv2.imwrite(f"./tests/rpe_auto.png", rpe_auto)
         #print(rpe_auto)
 """

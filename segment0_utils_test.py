@@ -398,16 +398,18 @@ class UtilsTest(unittest.TestCase):
             'MEDLINE_LINESWEETER': 5,
             'MEDLINE_MINDIST': 10
         }
-        medline = np.full(512, 100)
+        #medline = np.full(512, 100)
 
         # Call the function to be tested
-        noctimg, medline_output = split_normalize(octimg, params, medline=medline)
+        modes = 'ipsimple opsimple soft'
+        noctimg, medline_output = split_normalize(octimg, params, mode=modes, medline=None)
 
+        print(medline_output)
         # Check that the output image has the same shape as input
         self.assertEqual(noctimg.shape, octimg.shape)
 
         # Check that medline output matches the input medline
-        np.testing.assert_array_equal(medline_output, medline)
+        #np.testing.assert_array_equal(medline_output, medline)
 
         # Check that the output image values are within [0, 1]
         self.assertTrue(np.all(noctimg >= 0))

@@ -2,7 +2,7 @@ def segmentRPELin[bscan, PARAMS, medline]:
 # SEGMENTRPELIN Segments the RPE from a BScan. Intended for the use on
 # linear OCT-B-Scans (e.g. from a volume).
 #
-# For detailed comments refer to segmentRPECirc[..].
+# For detailed comments refer to segmentRPE[..].
 #
 # RPEAUTO = segmentRPELINAuto[BSCAN, PARAMS, MEDLINE]
 # RPEAUTO: Automated segmentation of the RPE

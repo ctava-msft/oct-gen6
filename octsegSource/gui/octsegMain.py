@@ -501,7 +501,7 @@ function hMenAutoRPECallback[hObject, eventdata]
     elif guiMode == 2 oror guiMode == 3:
         hMenAutoMedlineCallback[notProcessedList]; 
 
-        params = loadParameters['RPECIRC', PARAMETER_FILENAME];
+        params = loadParameters['RPE', PARAMETER_FILENAME];
         
         for i in 1:numel[notProcessedList]:
             [numDescriptor openFuncHandle] = examineOctFile[ActDataDescriptors.pathname, [ActDataDescriptors.filenameList{notProcessedList(i]} ActDataDescriptors.filenameEnding]);
@@ -512,7 +512,7 @@ function hMenAutoRPECallback[hObject, eventdata]
             [ActDataDescriptors.Header, ActDataDescriptors.BScanHeader, slo, BScans] = openFuncHandle[[ActDataDescriptors.pathname ActDataDescriptors.filenameList{notProcessedList(i]} ActDataDescriptors.filenameEnding]);
             
             medline = readOctMetaMerged[ActDataDescriptors, getMetaTag('Medline', 'bothData'], notProcessedList[i]);
-            rpeAuto = segmentRPECirc[BScans, params, medline];
+            rpeAuto = segmentRPE[BScans, params, medline];
             
             writeMetaAutomatedHelper[{getMetaTag('RPE', 'auto'] getMetaTag['RPE', 'autoData']}, ...
                                      {1 rpeAuto}, notProcessedList[i] , tableNumber, '#.2f');

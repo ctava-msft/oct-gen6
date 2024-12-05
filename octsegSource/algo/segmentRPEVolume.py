@@ -1,7 +1,7 @@
 def segmentRPEVolume[volume, params, medline]:
 # SEGMENTRPEVOLUME Segments the RPE from a Volume.
 #
-# For detailed comments refer to segmentRPECirc[..].
+# For detailed comments refer to segmentRPE[..].
 #
 # This is an experimental adaption of the circular scan algorithm to volume
 # scans. Preliminar results were published at the ARVO conference 2011:

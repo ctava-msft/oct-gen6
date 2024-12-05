@@ -29,8 +29,8 @@ def loadParameters[group, filename]:
 #       (segmentMedlineCirc).
 #   MEDLINELIN: Parameters for the IS/OS split line on linear scans/volumes
 #       (segmentMedlineLin).
-#   RPECIRC: Parameters for the RPE segmentation on circular scans
-#       (segmentRPECirc).
+#   RPE: Parameters for the RPE segmentation on circular scans
+#       (segmentRPE).
 #   RPELIN: Parameters for the RPE segmentation on linear scans/volumes
 #       (segmentRPELin).
 #   BV: Parameters for blood vessel segmentation (segmentBVLin,
@@ -292,60 +292,60 @@ while ischar[line]:
     
     
     # Load all parameters for the automated RPE segmentation
-    if strcmp[group, 'RPECIRC']:
+    if strcmp[group, 'RPE']:
         if numel[den] == 0:
         elif strcmp[den, '#']:
-        elif strcmp[den, 'RPECIRC_MEDLINE_SIGMA1']:
+        elif strcmp[den, 'RPE_MEDLINE_SIGMA1']:
             Params.MEDLINE_SIGMA1 = str2num[data];
-        elif strcmp[den, 'RPECIRC_MEDLINE_SIGMA2']:
+        elif strcmp[den, 'RPE_MEDLINE_SIGMA2']:
             Params.MEDLINE_SIGMA2 = str2num[data];
-        elif strcmp[den, 'RPECIRC_MEDLINE_MINDIST']:
+        elif strcmp[den, 'RPE_MEDLINE_MINDIST']:
             Params.MEDLINE_MINDIST = str2num[data];
-        elif strcmp[den, 'RPECIRC_MEDLINE_LINESWEETER']:
+        elif strcmp[den, 'RPE_MEDLINE_LINESWEETER']:
             temp = str2num[data];
             Params.MEDLINE_LINESWEETER = reshape[temp, [4 7]];
-        elif strcmp[den, 'RPECIRC_SPLITNORMALIZE_CUTOFF']:
+        elif strcmp[den, 'RPE_SPLITNORMALIZE_CUTOFF']:
             Params.SPLITNORMALIZE_CUTOFF = str2num[data];
-        elif strcmp[den, 'RPECIRC_SPLITNORMALIZE_LINESWEETER']:
+        elif strcmp[den, 'RPE_SPLITNORMALIZE_LINESWEETER']:
             temp = str2num[data];
             Params.SPLITNORMALIZE_LINESWEETER = reshape[temp, [4 7]];
-        elif strcmp[den, 'RPECIRC_REMOVEBIAS_REGIONWIDTH']:
+        elif strcmp[den, 'RPE_REMOVEBIAS_REGIONWIDTH']:
             Params.REMOVEBIAS_REGIONWIDTH = str2num[data];
-        elif strcmp[den, 'RPECIRC_REMOVEBIAS_FRACTION']:
+        elif strcmp[den, 'RPE_REMOVEBIAS_FRACTION']:
             Params.REMOVEBIAS_FRACTION = str2num[data];
-        elif strcmp[den, 'RPECIRC_FINDRETINAEXTREMA_SIGMA_GRADIENT']:
+        elif strcmp[den, 'RPE_FINDRETINAEXTREMA_SIGMA_GRADIENT']:
             Params.FINDRETINAEXTREMA_SIGMA_GRADIENT = str2num[data];
-        elif strcmp[den, 'RPECIRC_FINDRETINAEXTREMA_SIGMA_FZ']:
+        elif strcmp[den, 'RPE_FINDRETINAEXTREMA_SIGMA_FZ']:
             Params.FINDRETINAEXTREMA_SIGMA_FZ = str2num[data];
-        elif strcmp[den, 'RPECIRC_FINDBLOODVESSELS_WINDOWWIDTH']:
+        elif strcmp[den, 'RPE_FINDBLOODVESSELS_WINDOWWIDTH']:
             Params.FINDBLOODVESSELS_WINDOWWIDTH = str2num[data];
-        elif strcmp[den, 'RPECIRC_FINDBLOODVESSELS_WINDOWHEIGHT']:
+        elif strcmp[den, 'RPE_FINDBLOODVESSELS_WINDOWHEIGHT']:
             Params.FINDBLOODVESSELS_WINDOWHEIGHT = str2num[data];
-        elif strcmp[den, 'RPECIRC_FINDBLOODVESSELS_THRESHOLD']:
+        elif strcmp[den, 'RPE_FINDBLOODVESSELS_THRESHOLD']:
             Params.FINDBLOODVESSELS_THRESHOLD = str2num[data];
-        elif strcmp[den, 'RPECIRC_FINDBLOODVESSELS_FREEWIDTH']:
+        elif strcmp[den, 'RPE_FINDBLOODVESSELS_FREEWIDTH']:
             Params.FINDBLOODVESSELS_FREEWIDTH = str2num[data];
-        elif strcmp[den, 'RPECIRC_FINDBLOODVESSELS_MULTWIDTH']:
+        elif strcmp[den, 'RPE_FINDBLOODVESSELS_MULTWIDTH']:
             Params.FINDBLOODVESSELS_MULTWIDTH = str2num[data];
-        elif strcmp[den, 'RPECIRC_FINDBLOODVESSELS_MULTWIDTHTHRESH']:
+        elif strcmp[den, 'RPE_FINDBLOODVESSELS_MULTWIDTHTHRESH']:
             Params.FINDBLOODVESSELS_MULTWIDTHTHRESH = str2num[data];
-        elif strcmp[den, 'RPECIRC_SEGMENT_MEDFILT1']:
-            Params.RPECIRC_SEGMENT_MEDFILT1 = str2num[data];
-        elif strcmp[den, 'RPECIRC_SEGMENT_MEDFILT2']:
-            Params.RPECIRC_SEGMENT_MEDFILT2 = str2num[data];
-        elif strcmp[den, 'RPECIRC_SEGMENT_POLYDIST']:
-            Params.RPECIRC_SEGMENT_POLYDIST = str2num[data];
-        elif strcmp[den, 'RPECIRC_SEGMENT_POLYNUMBER']:
-            Params.RPECIRC_SEGMENT_POLYNUMBER = str2num[data];
-        elif strcmp[den, 'RPECIRC_SEGMENT_LINESWEETER1']:
+        elif strcmp[den, 'RPE_SEGMENT_MEDFILT1']:
+            Params.RPE_SEGMENT_MEDFILT1 = str2num[data];
+        elif strcmp[den, 'RPE_SEGMENT_MEDFILT2']:
+            Params.RPE_SEGMENT_MEDFILT2 = str2num[data];
+        elif strcmp[den, 'RPE_SEGMENT_POLYDIST']:
+            Params.RPE_SEGMENT_POLYDIST = str2num[data];
+        elif strcmp[den, 'RPE_SEGMENT_POLYNUMBER']:
+            Params.RPE_SEGMENT_POLYNUMBER = str2num[data];
+        elif strcmp[den, 'RPE_SEGMENT_LINESWEETER1']:
             temp = str2num[data];
-            Params.RPECIRC_SEGMENT_LINESWEETER1 = reshape[temp, [4 7]];
-        elif strcmp[den, 'RPECIRC_SEGMENT_LINESWEETER2']:
+            Params.RPE_SEGMENT_LINESWEETER1 = reshape[temp, [4 7]];
+        elif strcmp[den, 'RPE_SEGMENT_LINESWEETER2']:
             temp = str2num[data];
-            Params.RPECIRC_SEGMENT_LINESWEETER2 = reshape[temp, [4 7]];
-         elif strcmp[den, 'RPECIRC_LINEAR_LINESWEETER_SIMPLE']:
+            Params.RPE_SEGMENT_LINESWEETER2 = reshape[temp, [4 7]];
+         elif strcmp[den, 'RPE_LINEAR_LINESWEETER_SIMPLE']:
              temp = str2num[data];
-            Params.RPECIRC_LINEAR_LINESWEETER_SIMPLE = reshape[temp, [4 7]];
+            Params.RPE_LINEAR_LINESWEETER_SIMPLE = reshape[temp, [4 7]];
         
     
     

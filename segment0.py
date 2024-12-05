@@ -7,7 +7,7 @@ from scipy.signal import medfilt
 from scipy.signal import find_peaks
 from scipy.signal import argrelextrema
 
-def segment_rpe_layer(bscan, params, medline):
+def segment_rpe_layer(bscan, params, medline=None):
     """
     Segments the RPE - retinal pigment epithelium layer from a B-scan image.
 
@@ -36,6 +36,7 @@ def segment_rpe_layer(bscan, params, medline):
             bscan = np.log1p(bscan)
             print('After log1p transformation:')
             print('bscan min:', np.min(bscan), 'max:', np.max(bscan))
+            print('bscan mean:', np.mean(bscan), 'std:', np.std(bscan))
 
         # Normalize to range [0, 255]
         # bscan_normalized = 255 * (bscan - np.min(bscan)) / (np.max(bscan) - np.min(bscan))
@@ -53,8 +54,18 @@ def segment_rpe_layer(bscan, params, medline):
     # Scale to [0, 255] and convert to uint8
     bscan_to_save = (bscan_normalized * 255).astype(np.uint8)
     cv2.imwrite(f"./tests/bscan_after_normalization.png", bscan_to_save)
-    sn_bscan = split_normalize(bscan_normalized, params, medline)
-    cv2.imwrite(f"./tests/bscan_after_split_normalize.png", sn_bscan[0])
+    sn_bscan, _ = split_normalize(bscan_normalized, params, mode='ipsimple opsimple soft', medline=None)
+
+    # rpe_auto = sn_bscan
+    # # Ensure rpe_auto is a NumPy array
+    # if not isinstance(sn_bscan, np.ndarray):
+    #     sn_bscan = np.array(sn_bscan)
+
+    # # Check the data type and convert if necessary
+    # if sn_bscan.dtype != np.uint8:
+    #     sn_bscan = sn_bscan.astype(np.uint8)
+    cv2.imwrite(f"./tests/bscan_after_split_normalize.png", sn_bscan)
+    return sn_bscan
     #print(sn_bscan)
     # print(type(sn_bscan))
     # # Ensure sn_bscan is a NumPy array
@@ -66,16 +77,18 @@ def segment_rpe_layer(bscan, params, medline):
     # Extract the secondary array from the tuple
     #sn_bscan_array = sn_bscan[0]
     #cv2.imwrite(f"./bscan_after_split_normalize.png", sn_bscan_array)
-    sn_bscan = remove_bias(sn_bscan, params)
-    cv2.imwrite(f"./bscan_after_remove_bias.png", sn_bscan)
+
+    #===
+    #sn_bscan = remove_bias(sn_bscan, params)
+    #cv2.imwrite(f"./bscan_after_remove_bias.png", sn_bscan)
 
     # 2) Noise removal using median filtering
-    sn_bscan = medfilt2d(sn_bscan, params['RPECIRC_SEGMENT_MEDFILT1'])
-    sn_bscan = medfilt2d(sn_bscan, params['RPECIRC_SEGMENT_MEDFILT2'])
+    #sn_bscan = medfilt2d(sn_bscan, params['RPE_SEGMENT_MEDFILT1'])
+    #sn_bscan = medfilt2d(sn_bscan, params['RPE_SEGMENT_MEDFILT2'])
 
     # 3) Edge detection along A-scans
-    rpe = extrema_finder(image=sn_bscan, num_extrema=params,  mode='abs')
-    # print(f"{type(rpe)} {params['RPECIRC_SEGMENT_LINESWEETER1']}")
+    #rpe = extrema_finder(image=sn_bscan, num_extrema=params,  mode='abs')
+    # print(f"{type(rpe)} {params['RPE_SEGMENT_LINESWEETER1']}")
     # # Validate that rpe['min'] is a 1D array
     # #rpe_min = np.asarray(rpe['min'])
     # rpe_min = np.hstack(rpe['min'])
@@ -84,23 +97,23 @@ def segment_rpe_layer(bscan, params, medline):
     # if rpe_min.ndim != 1 or rpe_max.ndim != 1:
     #     raise ValueError(f"Expected rpe['min'] and rpe['max'] to be a 1D array, but got an arrays with shape {rpe_min.shape} {rpe_max.shape}")
 
-    #rpe = line_sweeter(rpe['min'], params['RPECIRC_SEGMENT_LINESWEETER1'])
-    #rpe = line_sweeter(rpe['max'], params['RPECIRC_SEGMENT_LINESWEETER1'])
+    #rpe = line_sweeter(rpe['min'], params['RPE_SEGMENT_LINESWEETER1'])
+    #rpe = line_sweeter(rpe['max'], params['RPE_SEGMENT_LINESWEETER1'])
 
     # 4) Polynomial fitting
     # x = np.arange(bscan.shape[1])
-    # p = np.polyfit(x, rpe, params['RPECIRC_SEGMENT_POLYNUMBER'])
+    # p = np.polyfit(x, rpe, params['RPE_SEGMENT_POLYNUMBER'])
     # rpe_poly = np.polyval(p, x)
     # rpe_poly = np.round(rpe_poly)
     # dist = np.abs(rpe_poly - rpe)
-    # rpe[dist > params['RPECIRC_SEGMENT_POLYDIST']] = 0
+    # rpe[dist > params['RPE_SEGMENT_POLYDIST']] = 0
 
     # 5) Remove blood vessel regions and final smoothing
     # idx_bv = find_blood_vessels(sn_bscan, params, rpe)
     # rpe[idx_bv] = 0
-    # rpe_auto = line_sweeter(rpe, params['RPECIRC_SEGMENT_LINESWEETER2'])
+    # rpe_auto = line_sweeter(rpe, params['RPE_SEGMENT_LINESWEETER2'])
 
-    return rpe
+    #return rpe
 
 def line_sweeter(line, window_size):
     """
@@ -373,21 +386,28 @@ def split_normalizeNew(image):
     normalized = (image - min_val) / (max_val - min_val)
     return normalized
 
-def split_normalize(octimg, params, mode='ipsimple opsimple soft', medline=None):
+def split_normalizeOLD(octimg, params, mode='ipsimple opsimple soft', medline=None):
     """
     Normalize an OCT B-scan differently in the inner and outer parts.
 
     Args:
         octimg (np.ndarray): Input B-scan image.
         params (dict): Parameter dictionary.
-        mode (str): Normalization modes.
+        mode (str): Normalization modes. Options include:
+            - 'ipbscan': Apply B-scan normalization to the inner part.
+            - 'ipnearmax': Apply near-maximum normalization to the inner part.
+            - 'ipnonlin': Apply nonlinear normalization to the inner part.
+            - 'ipsimple': Apply simple normalization to the inner part.
+            - 'opbscan': Apply B-scan normalization to the outer part.
+            - 'opnonlin': Apply nonlinear normalization to the outer part.
+            - 'opsimple': Apply simple normalization to the outer part.
+            - 'soft': Apply soft normalization.
         medline (np.ndarray): Medline indices.
 
     Returns:
         noctimg (np.ndarray): Normalized OCT image.
         medline (np.ndarray): Medline indices.
     """
-    cutoff = params.get('SPLITNORMALIZE_CUTOFF', 2.0)
     cutoff = params.get('SPLITNORMALIZE_CUTOFF', 2.0)
     print(f"Normalization mode: {mode}")
     print(f"Cutoff value: {cutoff}")
@@ -396,7 +416,7 @@ def split_normalize(octimg, params, mode='ipsimple opsimple soft', medline=None)
         medline = find_medline(octimg, params)
         medline = medfilt2d(medline, kernel_size=5)
         medline = np.floor(medline).astype(int)
-        medline[medline < 1] = 1
+        #medline[medline < 1] = 1
         print("Processed medline:", medline)
 
     noctimg = octimg.copy()
@@ -453,19 +473,20 @@ def split_normalize(octimg, params, mode='ipsimple opsimple soft', medline=None)
         maxIP = maxIP - meanVal + minIP
 
     if 'soft' in mode:
+        print("soft in mode")
         maxIP = medfilt(maxIP, kernel_size=5)
         minIP = medfilt(minIP, kernel_size=5)
         maxOP = medfilt(maxOP, kernel_size=5)
         minOP = medfilt(minOP, kernel_size=5)
-        print("maxIP after 'soft':", maxIP)
-        print("minIP after 'soft':", minIP)
-        print("maxOP after 'soft':", maxOP)
-        print("minOP after 'soft':", minOP)
+        # print("maxIP after 'soft':", maxIP)
+        # print("minIP after 'soft':", minIP)
+        # print("maxOP after 'soft':", maxOP)
+        # print("minOP after 'soft':", minOP)
 
     ipDiff = maxIP - minIP
     ipDiff[ipDiff == 0] = 1  # Prevent division by zero
     print("ipDiff min:", ipDiff.min(), "max:", ipDiff.max())
-    print("minIP min:", minIP.min(), "max:", minIP.max())
+    # print("minIP min:", minIP.min(), "max:", minIP.max())
     if 'ipbscan' in mode:
         minIP[:] = np.min(minIP)
         maxIP[:] = np.max(minIP)
@@ -479,7 +500,8 @@ def split_normalize(octimg, params, mode='ipsimple opsimple soft', medline=None)
     elif 'ipnonlin' in mode:
         for i in range(num_cols):
             if ipDiff[i] != 0:
-                noctimg[:medline[i], i] = ((octimg[:medline[i], i] - minIP[i]) / ipDiff[i]) ** 2
+                max_index = min(medline[i], octimg.shape[0] - 1)
+                noctimg[:max_index, i] = ((octimg[:max_index, i] - minIP[i]) / ipDiff[i]) ** 2
     elif 'ipnearmax' in mode:
         minIP[:] = np.min(minIP)
         maxIPS = np.sort(maxIP)
@@ -525,6 +547,121 @@ def split_normalize(octimg, params, mode='ipsimple opsimple soft', medline=None)
                 noctimg[medline[i]:, i] = (octimg[medline[i]:, i] - minOP[i]) / opDiff[i]
 
     noctimg = np.clip(noctimg, 0, 1)
+    print('noctimg min:', noctimg.min(), 'max:', noctimg.max())
+    print("noctimg statistics:")
+    print("min:", noctimg.min())
+    print("max:", noctimg.max())
+    print("mean:", noctimg.mean())
+    print("std:", noctimg.std())
+
+    for i in range(num_cols):
+        inner = noctimg[:medline[i], i]
+        outer = noctimg[medline[i]:, i]
+        if np.any(inner > 0):
+            cv2.imwrite(f"./output_intermediates/segments/inner_segment_col_{i}.png", (inner * 255).astype(np.uint8))
+        if np.any(outer > 0):
+            cv2.imwrite(f"./output_intermediates/segments/outer_segment_col_{i}.png", (outer * 255).astype(np.uint8))    
+    return noctimg, medline
+
+def split_normalize(octimg, params, mode='ipsimple opsimple soft', medline=None):
+    """
+    Normalize an OCT B-scan differently in the inner and outer parts.
+
+    Args:
+        octimg (np.ndarray): Input B-scan image.
+        params (dict): Parameter dictionary.
+        mode (str): Normalization modes. Options include:
+            - 'ipsimple': Apply simple normalization to the inner part.
+            - 'opsimple': Apply simple normalization to the outer part.
+            - 'soft': Apply soft normalization.
+        medline (np.ndarray): Medline indices.
+
+    Returns:
+        noctimg (np.ndarray): Normalized OCT image.
+        medline (np.ndarray): Medline indices.
+    """
+    cutoff = params.get('SPLITNORMALIZE_CUTOFF', 2.0)
+    print(f"Normalization mode: {mode}")
+    print(f"Cutoff value: {cutoff}")
+
+    if medline is None:
+        medline = find_medline(octimg, params)
+        medline = medfilt2d(medline, kernel_size=5)
+        medline = np.floor(medline).astype(int)
+        medline[medline < 1] = 1
+        print("Processed medline:", medline)
+
+    noctimg = octimg.copy()
+    assert np.all(medline < noctimg.shape[0]), "medline contains out-of-bounds indices."
+    num_cols = octimg.shape[1]
+    maxIP = np.zeros(num_cols, dtype=np.float64)
+    minIP = np.zeros(num_cols, dtype=np.float64)
+    maxOP = np.zeros(num_cols, dtype=np.float64)
+    minOP = np.zeros(num_cols, dtype=np.float64)
+
+    meanVal = np.zeros(num_cols)
+    for i in range(num_cols):
+        sorter = np.sort(octimg[:medline[i], i])
+        meanVal[i] = np.mean(sorter)
+    meanVal = meanVal * cutoff - np.mean(meanVal)
+    meanVal[meanVal < 0] = 0
+
+    for i in range(num_cols):
+        # Ensure medline[i] is within bounds
+        start_index = int(np.clip(medline[i], 0, octimg.shape[0] - 1))
+        end_index = octimg.shape[0]
+        
+        # Slices for minOP and maxOP
+        slice_op = octimg[start_index:end_index, i]
+        if slice_op.size > 0:
+            minOP[i] = np.min(slice_op)
+            maxOP[i] = np.max(slice_op)
+        else:
+            minOP[i] = 0.0  # Assign a default value
+            maxOP[i] = 0.0
+        
+    if 'soft' in mode:
+        print("soft in mode")
+        maxIP = medfilt(maxIP, kernel_size=5)
+        minIP = medfilt(minIP, kernel_size=5)
+        maxOP = medfilt(maxOP, kernel_size=5)
+        minOP = medfilt(minOP, kernel_size=5)
+        # print("maxIP after 'soft':", maxIP)
+        # print("minIP after 'soft':", minIP)
+        # print("maxOP after 'soft':", maxOP)
+        # print("minOP after 'soft':", minOP)
+        # Replace NaNs with zeros
+        maxIP = np.nan_to_num(maxIP, nan=0.0)
+        minIP = np.nan_to_num(minIP, nan=0.0)
+        maxOP = np.nan_to_num(maxOP, nan=0.0)
+        minOP = np.nan_to_num(minOP, nan=0.0)
+
+    # Handle ipDiff
+    ipDiff = maxIP - minIP
+    ipDiff[ipDiff == 0] = 1  # Prevent division by zero
+    print("ipDiff min:", ipDiff.min(), "max:", ipDiff.max())
+    # print("minIP min:", minIP.min(), "max:", minIP.max())
+    if 'ipsimple' in mode:
+        for i in range(num_cols):
+            if (ipDiff[i] != 0).all():
+                noctimg[:medline[i], i] = (octimg[:medline[i], i] - minIP[i]) / ipDiff[i]
+
+
+    print("Before median filtering:")
+    print("minOP contains NaNs:", np.isnan(minOP).any())
+    print("maxOP contains NaNs:", np.isnan(maxOP).any())
+
+    # Handle opDiff with a minimum threshold
+    opDiff = maxOP - minOP
+    min_op_diff = 1e-3  # Set a sensible minimum
+    opDiff = np.where(opDiff < min_op_diff, min_op_diff, opDiff)
+    print("opDiff min:", opDiff.min(), "max:", opDiff.max())
+
+    if 'opsimple' in mode:
+        for i in range(num_cols):
+            noctimg[medline[i]:, i] = (octimg[medline[i]:, i] - minOP[i]) / opDiff[i]
+
+    #noctimg = np.clip(noctimg, 0, 1)
     print('noctimg min:', noctimg.min(), 'max:', noctimg.max())
     print("noctimg statistics:")
     print("min:", noctimg.min())
