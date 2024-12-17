@@ -1,6 +1,7 @@
 import cv2
+import json
 import numpy as np
-from numpy.polynomial import Polynomial
+import os
 from scipy.signal import medfilt2d
 from scipy.ndimage import gaussian_filter
 from scipy.signal import medfilt
@@ -8,90 +9,70 @@ from scipy.signal import find_peaks
 from scipy.signal import argrelextrema
 from scipy import fftpack
 from scipy.ndimage import gaussian_filter
-import matplotlib.pyplot as plt
-import os
-import json
 
-def scale_contours(contour, multiplier):
-    contour_array = contour.reshape(-1, 2).astype(np.float32)
+exp = 17
+exp_i = 2
+output_dir = f"_output-{exp}-{exp_i}"
+os.makedirs(output_dir, exist_ok=True)
+segment_dir = f"_output-{exp}-{exp_i}/segments"
+os.makedirs(segment_dir, exist_ok=True)
+
+# Define the path to the input image
+def process_and_draw_layers(bscan,layers_config, medline):
+    output_image = bscan.copy()
+    output_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    line_coordinates = {}
+    contour_info = {}
     
-    if len(contour_array) < 3:
-        raise ValueError("Contour has fewer than 3 points and cannot form a valid shape.")
-    
-    M = cv2.moments(contour)
-    if M['m00'] == 0:
-        centroid = np.mean(contour_array, axis=0)
-    else:
-        cx = M['m10'] / M['m00']
-        cy = M['m01'] / M['m00']
-        centroid = np.array([cx, cy], dtype=np.float32)
+    # Separate the image into above and below medline
+    above_medline = np.zeros_like(bscan)
+    below_medline = np.zeros_like(bscan)
+    for i in range(bscan.shape[1]):
+        med_y = medline[i]
+        above_medline[:med_y, i] = bscan[:med_y, i]
+        below_medline[med_y:, i] = bscan[med_y:, i]
 
-    # Translate contour to origin
-    translated = contour_array - centroid
-    # Apply scaling
-    scaled = translated * multiplier
-    # Translate contour back
-    scaled_contour = scaled + centroid
-    # Convert back to integer
-    scaled_contour = scaled_contour.astype(np.int32)
-    
-    # Reshape to original shape
-    scaled_contour = scaled_contour.reshape(-1, 1, 2)
-
-    # Validation Checks
-    if scaled_contour.shape[0] < 3:
-        raise ValueError("Scaled contour has fewer than 3 points and cannot form a valid shape.")
-    if scaled_contour.dtype not in [np.int32, np.float32]:
-        raise TypeError(f"Scaled contour has invalid data type: {scaled_contour.dtype}")
-
-    # Calculate areas
-    original_area = cv2.contourArea(contour)
-    scaled_area = cv2.contourArea(scaled_contour)
-
-    return scaled_contour, original_area, scaled_area
-
-def fill_scaled_contours(layer_image, scaled_contour):
-    mask = np.zeros(layer_image.shape[:2], dtype=np.uint8)
-    cv2.drawContours(mask, [scaled_contour], -1, 255, thickness=cv2.FILLED)
-    extracted_data = cv2.bitwise_and(layer_image, layer_image, mask=mask)
-    return extracted_data
-
-def process_and_draw_layers(bscan):
-    # Apply Fourier Transform to the image
-    oct_fft = fftpack.fft2(bscan)
-    oct_fft_shifted = fftpack.fftshift(oct_fft)  # Shift zero frequency to the center
-
-    # Create a Gaussian filter in the frequency domain to enhance high frequencies (edges)
+    # Apply FFT to above medline
+    fft_above = fftpack.fft2(above_medline)
+    fft_above_shifted = fftpack.fftshift(fft_above)
     rows, cols = bscan.shape
-    crow, ccol = rows // 2, cols // 2  # Center
-    sigma = 50  # Gaussian standard deviation
+    crow, ccol = rows // 2, cols // 2
+    sigma = 50
     x, y = np.ogrid[:rows, :cols]
     mask = np.exp(-((x - crow)**2 + (y - ccol)**2) / (2.0 * sigma**2))
-
-    # Apply the filter to the FFT of the image
-    filtered_fft = oct_fft_shifted * mask
-
-    # Transform back to the spatial domain
-    filtered_oct_image = np.abs(fftpack.ifft2(fftpack.ifftshift(filtered_fft)))
-
-    # Apply Gaussian smoothing
-    smoothed_image = gaussian_filter(filtered_oct_image, sigma=1).astype(np.uint8)
-
-    # Use Canny edge detection with adjusted thresholds
-    edges = cv2.Canny(smoothed_image, threshold1=20, threshold2=80)  # Lowered thresholds
-
-    # Apply dilation to connect fragmented edges
+    filtered_fft_above = fft_above_shifted * mask
+    filtered_above = np.abs(fftpack.ifft2(fftpack.ifftshift(filtered_fft_above)))
+    smoothed_above = gaussian_filter(filtered_above, sigma=0.9).astype(np.uint8)
+    edges_above = cv2.Canny(smoothed_above, threshold1=10, threshold2=70)
     kernel = np.ones((3, 3), np.uint8)
-    edges = cv2.dilate(edges, kernel, iterations=1)
+    edges_above = cv2.dilate(edges_above, kernel, iterations=1)
+    contours_above, _ = cv2.findContours(edges_above, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
 
-    # Save the edges image for debugging
-    cv2.imwrite('edges_debug.png', edges)
+    # Apply FFT to below medline
+    fft_below = fftpack.fft2(below_medline)
+    fft_below_shifted = fftpack.fftshift(fft_below)
+    filtered_fft_below = fft_below_shifted * mask
+    filtered_below = np.abs(fftpack.ifft2(fftpack.ifftshift(filtered_fft_below)))
+    smoothed_below = gaussian_filter(filtered_below, sigma=0.9).astype(np.uint8)
+    edges_below = cv2.Canny(smoothed_below, threshold1=10, threshold2=70)
+    edges_below = cv2.dilate(edges_below, kernel, iterations=1)
+    contours_below, _ = cv2.findContours(edges_below, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
 
-    # Find contours from the edges
-    #contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    # Combine contours from above and below
+    contours = contours_above + contours_below
+
+    MIN_AREA = 100
+    contours = [cnt for cnt in contours if cv2.contourArea(cnt) > MIN_AREA]
+
     print(f"Number of contours detected: {len(contours)}")
-    # Define layer colors based on the legend (approximation)
+    print(f"Type of contours: {type(contours)}")
+
+    if not isinstance(contours, list):
+        raise TypeError(f"Contours should be a list, but got {type(contours)}")
+    for i, contour in enumerate(contours):
+        if not isinstance(contour, np.ndarray):
+            raise TypeError(f"Contour at index {i} should be a numpy array, but got {type(contour)}")
+
     layer_colors = [
         (255, 0, 0),    # Blue for RNFL
         (255, 165, 0),  # Orange for GCL
@@ -103,87 +84,19 @@ def process_and_draw_layers(bscan):
         (255, 0, 0),    # Red for POS
         (0, 255, 255),  # Cyan for RPE/BM
     ]
-
-    def process_layers(bscan, contours, layer_colors, scaling_factors):
-        output_image = bscan.copy()
-        output_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-        line_coordinates = {}
-        contour_info = {}
-        for layer_idx, multiplier in scaling_factors.items():
-            if layer_idx >= len(contours):
-                continue
-            contour = contours[layer_idx]
-            try:
-                scaled_contours, original_area, scaled_area = scale_contours(contour, multiplier)
-            except (ValueError, TypeError) as e:
-                print(f"Layer {layer_idx}: {e} Skipping this layer.")
-                continue
-            
-            # Store coordinates and areas
-            contour_info[layer_idx] = {
-                "original_contour": contours,
-                "scaled_contour": scaled_contours,
-                "original_area": original_area,
-                "scaled_area": scaled_area
-            }
-            
-            # # Anchor scaled_contour to original_contour
-            # anchored_scaled_contour = [
-            #     (ox + sx, oy + sy) for (ox, oy), (sx, sy) in zip(contours, scaled_contours)
-            # ]
-            # # Separate x and y coordinates
-            # orig_x, orig_y = zip(*contours)
-            # scaled_x, scaled_y = zip(*anchored_scaled_contour)
-            # # Plot original contour
-            # plt.plot(orig_x, orig_y, 'k-', label='Original Contour')
-            # # Plot filled scaled contour
-            # plt.fill(scaled_x, scaled_y, alpha=0.5, label='Scaled Contour')
-            # plt.legend()
-            # plt.show()
-
-            # Handle layer_colors as a list
-            color = layer_colors[layer_idx+1] if layer_idx < len(layer_colors) else (255, 255, 255)
-
-            cv2.drawContours(output_image, [scaled_contours], -1, color, 2)
-            
-            filled_data = fill_scaled_contours(bscan, scaled_contours)
-
-            # Convert filled_data to BGR if necessary
-            if len(filled_data.shape) == 2:
-                filled_data = cv2.cvtColor(filled_data, cv2.COLOR_GRAY2BGR)
-            
-            # Ensure filled_data matches output_image dimensions and channels
-            if filled_data.shape != output_image.shape:
-                filled_data = cv2.resize(filled_data, (output_image.shape[1], output_image.shape[0]))
-            
-            assert filled_data.shape == output_image.shape, "Filled data and output image shapes do not match."
-            assert filled_data.dtype == output_image.dtype, "Filled data and output image dtypes do not match."
-
-            output_image = cv2.addWeighted(output_image, 1, filled_data, 1, 0)
-            
-            line_coordinates[layer_idx] = scaled_contours.tolist()
-            
-            # Print contour information
-            print(f"Layer {layer_idx}:")
-            print(f"  Original Area: {original_area}")
-            print(f"  Scaled Area: {scaled_area}")
-            #print(f"  Original Contour Coordinates: {contour.tolist()}")
-            #print(f"  Scaled Contour Coordinates: {scaled_contour.tolist()}\n")
-
-        with open('line_coordinates.json', 'w') as f:
-            json.dump(line_coordinates, f)
-            
-        return output_image
+    for layer_idx in layers_config.keys():
+        if layer_idx >= len(contours):
+            continue
+        contour = contours[layer_idx]
+        contour_info[layer_idx] = {
+            "original_contour": contour,
+        }
+        color = layer_colors[layer_idx+1] if layer_idx < len(layer_colors) else (255, 255, 255)
+        cv2.drawContours(output_image, [contour], -1, color, 2)
+        print(f"Layer {layer_idx}:")
+    return output_image
     
-    scaling_factors = {
-        0: 1.25,  # RNFL
-        # Add more layers and multipliers as needed
-        # Freeze layers from change
-    }
-    subset_contours = [contours[2]]
-    filtered_image_with_lines = process_layers(bscan, subset_contours, layer_colors, scaling_factors)
-    return filtered_image_with_lines
-
+# segment_layers function
 def segment_layers(bscan, params, medline=None):
     """
     Segments the RPE - retinal pigment epithelium layer from a B-scan image.
@@ -198,109 +111,35 @@ def segment_layers(bscan, params, medline=None):
     """
     # 1) Normalize the intensity values
     # Save the bscan image before normalization
-    cv2.imwrite(f"./tests/bscan_before_normalization.png", bscan)
+    cv2.imwrite(f"./{output_dir}/bscan_before_normalization.png", bscan)
 
     # Inspect bscan data
     print('bscan min:', np.min(bscan), 'max:', np.max(bscan))
     print('bscan mean:', np.mean(bscan), 'std:', np.std(bscan))
 
-    # Check if normalization is possible
-    if np.max(bscan) == np.min(bscan):
-        print("bscan has constant value. Cannot normalize.")
-    else:
-        # Apply logarithmic scaling if necessary
-        if np.max(bscan) - np.min(bscan) > 100:
-            bscan = np.log1p(bscan)
-            print('After log1p transformation:')
-            print('bscan min:', np.min(bscan), 'max:', np.max(bscan))
-            print('bscan mean:', np.mean(bscan), 'std:', np.std(bscan))
-
-        # Normalize to range [0, 255]
-        # bscan_normalized = 255 * (bscan - np.min(bscan)) / (np.max(bscan) - np.min(bscan))
-        # bscan_normalized = bscan_normalized.astype(np.uint8)
-
-        # Normalize the image to [0, 1]
-        bscan_min = np.min(bscan)
-        bscan_max = np.max(bscan)
-        bscan_normalized = (bscan - bscan_min) / (bscan_max - bscan_min)
-
-        # # Display the image
-        # cv2.imshow('Normalized Image', bscan_normalized)
-        # cv2.waitKey(0)
-        # cv2.destroyAllWindows()
-    # Scale to [0, 255] and convert to uint8
-    bscan_to_save = (bscan_normalized * 255).astype(np.uint8)
-    cv2.imwrite(f"./tests/bscan_after_normalization.png", bscan_to_save)
+    # # Check if normalization is possible
+    # if np.max(bscan) == np.min(bscan):
+    #     print("bscan has constant value. Cannot normalize.")
+    # else:
+    #     # Apply logarithmic scaling if necessary
+    #     if np.max(bscan) - np.min(bscan) > 100:
+    #         bscan = np.log1p(bscan)
+    #         print('After log1p transformation:')
+    #         print('bscan min:', np.min(bscan), 'max:', np.max(bscan))
+    #         print('bscan mean:', np.mean(bscan), 'std:', np.std(bscan))
+    #     # Normalize the image to [0, 1]
+    #     bscan_min = np.min(bscan)
+    #     bscan_max = np.max(bscan)
+    #     bscan_normalized = (bscan - bscan_min) / (bscan_max - bscan_min)
+    # bscan_to_save = (bscan_normalized * 255).astype(np.uint8)
+    # cv2.imwrite(f"./{output_dir}/bscan_after_normalization.png", bscan_to_save)
     modes = 'ipsimple opsimple soft'
     modes = 'soft'
-    sn_bscan, _ = split_normalize(bscan_to_save, params, mode=modes, medline=None)
-
-    # rpe_auto = sn_bscan
-    # # Ensure rpe_auto is a NumPy array
-    # if not isinstance(sn_bscan, np.ndarray):
-    #     sn_bscan = np.array(sn_bscan)
-
-    # # Check the data type and convert if necessary
-    # if sn_bscan.dtype != np.uint8:
-    #     sn_bscan = sn_bscan.astype(np.uint8)
-    cv2.imwrite(f"./tests/bscan_after_split_normalize.png", sn_bscan)
-
-    # Call process_and_draw_layers
-    processed_bscan = process_and_draw_layers(sn_bscan)
-
+    sn_bscan, _ = split_normalize(bscan, params, mode=modes, medline=None)
+    cv2.imwrite(f"./{output_dir}/bscan_after_split_normalize.png", sn_bscan)
+    medline = find_medline(bscan, params)
     # Continue with the rest of the code
-    return processed_bscan
-
-    #return sn_bscan
-    #return bscan_to_save
-    #print(sn_bscan)
-    # print(type(sn_bscan))
-    # # Ensure sn_bscan is a NumPy array
-    # sn_bscan = np.array(sn_bscan)
-
-    # # Normalize and convert to uint8 if it's not already
-    # if sn_bscan.dtype != np.uint8:
-    #     sn_bscan = (sn_bscan * 255).astype(np.uint8)
-    # Extract the secondary array from the tuple
-    #sn_bscan_array = sn_bscan[0]
-    #cv2.imwrite(f"./bscan_after_split_normalize.png", sn_bscan_array)
-
-    #===
-    #sn_bscan = remove_bias(sn_bscan, params)
-    #cv2.imwrite(f"./bscan_after_remove_bias.png", sn_bscan)
-
-    # 2) Noise removal using median filtering
-    #sn_bscan = medfilt2d(sn_bscan, params['RPE_SEGMENT_MEDFILT1'])
-    #sn_bscan = medfilt2d(sn_bscan, params['RPE_SEGMENT_MEDFILT2'])
-
-    # 3) Edge detection along A-scans
-    #rpe = extrema_finder(image=sn_bscan, num_extrema=params,  mode='abs')
-    # print(f"{type(rpe)} {params['RPE_SEGMENT_LINESWEETER1']}")
-    # # Validate that rpe['min'] is a 1D array
-    # #rpe_min = np.asarray(rpe['min'])
-    # rpe_min = np.hstack(rpe['min'])
-    # #rpe_max = np.asarray(rpe['max'])
-    # rpe_max = np.hstack(rpe['max'])
-    # if rpe_min.ndim != 1 or rpe_max.ndim != 1:
-    #     raise ValueError(f"Expected rpe['min'] and rpe['max'] to be a 1D array, but got an arrays with shape {rpe_min.shape} {rpe_max.shape}")
-
-    #rpe = line_sweeter(rpe['min'], params['RPE_SEGMENT_LINESWEETER1'])
-    #rpe = line_sweeter(rpe['max'], params['RPE_SEGMENT_LINESWEETER1'])
-
-    # 4) Polynomial fitting
-    # x = np.arange(bscan.shape[1])
-    # p = np.polyfit(x, rpe, params['RPE_SEGMENT_POLYNUMBER'])
-    # rpe_poly = np.polyval(p, x)
-    # rpe_poly = np.round(rpe_poly)
-    # dist = np.abs(rpe_poly - rpe)
-    # rpe[dist > params['RPE_SEGMENT_POLYDIST']] = 0
-
-    # 5) Remove blood vessel regions and final smoothing
-    # idx_bv = find_blood_vessels(sn_bscan, params, rpe)
-    # rpe[idx_bv] = 0
-    # rpe_auto = line_sweeter(rpe, params['RPE_SEGMENT_LINESWEETER2'])
-
-    #return rpe
+    return sn_bscan, medline
 
 def line_sweeter(line, window_size):
     """
@@ -566,14 +405,7 @@ def find_medline(octimg, params):
     medline = line_sweeter(lmin, linesweeter_window)
     return medline
 
-def split_normalizeNew(image):
-    min_val = np.min(image)
-    max_val = np.max(image)
-    if max_val - min_val == 0:
-        return image
-    normalized = (image - min_val) / (max_val - min_val)
-    return normalized
-
+# Segment the RPE layer
 def split_normalize(octimg, params, mode='', medline=None):
     """
     Normalize an OCT B-scan differently in the inner and outer parts.
@@ -690,11 +522,12 @@ def split_normalize(octimg, params, mode='', medline=None):
         inner = noctimg[:medline[i], i]
         outer = noctimg[medline[i]:, i]
         if np.any(inner > 0):
-            cv2.imwrite(f"./output_intermediates/segments/inner_segment_col_{i}.png", (inner * 255).astype(np.uint8))
+            cv2.imwrite(f"./{output_dir}/segments/inner_segment_col_{i}.png", (inner * 255).astype(np.uint8))
         if np.any(outer > 0):
-            cv2.imwrite(f"./output_intermediates/segments/outer_segment_col_{i}.png", (outer * 255).astype(np.uint8))    
+            cv2.imwrite(f"./{output_dir}/segments/outer_segment_col_{i}.png", (outer * 255).astype(np.uint8))    
     return noctimg, medline
 
+# Remove bias
 def remove_bias(octimg, params):
     """
     Removes bias from the OCT image.
@@ -749,6 +582,7 @@ def remove_bias(octimg, params):
 
     return resoctimg
 
+# Extend blood vessels
 def extend_blood_vessels(bv, add_width, mult_width_thresh, mult_width):
     """
     Extends blood vessels by a constant factor or multiplicative factor.
@@ -791,6 +625,7 @@ def extend_blood_vessels(bv, add_width, mult_width_thresh, mult_width):
 
     return bv
 
+# Find blood vessels
 def find_blood_vessels(bscan, params, linerpe):
     """
     Finds the indices of blood vessel shadows along a line using adaptive thresholding.
@@ -846,10 +681,14 @@ def find_blood_vessels(bscan, params, linerpe):
 
 if __name__ == "__main__":
     # Define the path to the image
-    image_path = os.path.join(os.path.dirname(__file__), 'images', 'oct-id-105.jpg')
+    image_name = 'oct-id-105.jpg'
+    #image_name = 'kaggle-NORMAL-3099713-1.jpg'
+    #image_name = 'oct-500-3-10301-1.bmp'
+    image_path = os.path.join(os.path.dirname(__file__), 'images', 'samples', image_name)
 
     # Load the image using OpenCV
     image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)  # Load as grayscale
+    cv2.imwrite(f"./{output_dir}/orig-image.png", image)
 
     # Define parameters for segmentation
     params = {
@@ -868,7 +707,16 @@ if __name__ == "__main__":
         'SPLITNORMALIZE_CUTOFF': 2.0
     }
 
-    # Call the segmentation function
-    layers = segment_layers(image, params)
-    print("./tests/layers-resized.png")
-    cv2.imwrite(f"./tests/layers-resized.png", layers)
+    # Call the layer segmentation function
+    layers, medline = segment_layers(image, params)
+    print(f"./{output_dir}/layers-segmented.png")
+    cv2.imwrite(f"./{output_dir}/layers-segmented.png", layers)
+
+    # Call process_and_draw_layers function
+    layers_config = {
+        0: 0.25,  # RNFL
+        # Add more layers and multipliers as needed
+    }
+    processed_bscan = process_and_draw_layers(layers, layers_config, medline)
+    print(f"./{output_dir}/layers-drawn.png")
+    cv2.imwrite(f"./{output_dir}/layers-drawn.png", processed_bscan)
